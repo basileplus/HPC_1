@@ -15,15 +15,28 @@ void Add_Vfloat(float* A, float* B, float* C, unsigned short Length)
 		C[i] = A[i] + B[i];
 }
 
-void  
-
 
 void simd_Add_Vfloat(float* A, float* B, float* C, unsigned short Length)
 {
+
+	for (int i = 0; i < Length; i += 4) {
+		__m128 vectA = _mm_load_ps(&A[i]);
+		__m128 vectB = _mm_load_ps(&B[i]);
+		__m128 vectC = _mm_add_ps(vectA, vectB);
+		_mm_store_ps(&C[i], vectC);
+	}
 }
 
 void simd_openmp_Add_Vfloat(float* A, float* B, float* C, unsigned short Length)
 {
+	int i;
+    #pragma omp parallel for
+    for (i = 0; i < Length; i += 4) {
+        __m128 vectA = _mm_load_ps(&A[i]);
+        __m128 vectB = _mm_load_ps(&B[i]);
+        __m128 vectC = _mm_add_ps(vectA, vectB);
+        _mm_store_ps(&C[i], vectC);
+    }
 }
 
 float DotProduct(float* A, float* B, unsigned short Length)
@@ -37,14 +50,44 @@ float DotProduct(float* A, float* B, unsigned short Length)
 	return Result;
 }
 
+// On manipule des floats. Un float * float = float et float + float = float donc pas de prblème de débordement (dans la plupart des cas)
+// Ca marche pareil pour les doubles
 float simd_DotProduct(float* A, float* B, unsigned short Length)
 {
-	return 0.0;
+    __m128 sum = _mm_setzero_ps();
+    for (int i = 0; i < Length; i += 4) {
+        __m128 vectA = _mm_load_ps(&A[i]);
+        __m128 vectB = _mm_load_ps(&B[i]);
+        __m128 mul = _mm_mul_ps(vectA, vectB);
+        sum = _mm_add_ps(sum, mul); // ps pour simple precision : float sur 32bits
+    }
+    float result[4];
+    _mm_store_ps(result, sum);
+    return result[0] + result[1] + result[2] + result[3];
 }
 
 float simd_openmp_DotProduct(float* A, float* B, unsigned short Length)
 {
-	return 0.0;
+    __m128 sum = _mm_setzero_ps();
+    #pragma omp parallel
+    {
+        __m128 local_sum = _mm_setzero_ps();
+		int i;
+        #pragma omp for
+        for (i = 0; i < Length; i += 4) {
+            __m128 vectA = _mm_load_ps(&A[i]);
+            __m128 vectB = _mm_load_ps(&B[i]);
+            __m128 mul = _mm_mul_ps(vectA, vectB);
+            local_sum = _mm_add_ps(local_sum, mul);
+        }
+        #pragma omp critical
+        {
+            sum = _mm_add_ps(sum, local_sum);
+        }
+    }
+    float result[4];
+    _mm_store_ps(result, sum);
+    return result[0] + result[1] + result[2] + result[3];
 }
 
 float Avg_Vfloat(float* A, unsigned short Length)
@@ -60,12 +103,38 @@ float Avg_Vfloat(float* A, unsigned short Length)
 
 float simd_Avg_Vfloat(float* A, unsigned short Length)
 {
-	return 0.0;
+    __m128 sum = _mm_setzero_ps();
+    for (int i = 0; i < Length; i += 4) {
+        __m128 vectA = _mm_load_ps(&A[i]);
+        sum = _mm_add_ps(sum, vectA);
+    }
+    float result[4];
+    _mm_store_ps(result, sum);
+    float totalSum = result[0] + result[1] + result[2] + result[3];
+    return totalSum / Length;
 }
 
 float simd_openmp_Avg_Vfloat(float* A, unsigned short Length)
 {
-	return 0.0;
+    __m128 sum = _mm_setzero_ps();
+    #pragma omp parallel
+    {
+        __m128 local_sum = _mm_setzero_ps();
+		int i;
+        #pragma omp for
+        for (i = 0; i < Length; i += 4) {
+            __m128 vectA = _mm_load_ps(&A[i]);
+            local_sum = _mm_add_ps(local_sum, vectA);
+        }
+        #pragma omp critical
+        {
+            sum = _mm_add_ps(sum, local_sum);
+        }
+    }
+    float result[4];
+    _mm_store_ps(result, sum);
+    float totalSum = result[0] + result[1] + result[2] + result[3];
+    return totalSum / Length;
 }
 
 void Min3_Vfloat(float* A, float* R, unsigned short Length)
@@ -73,12 +142,14 @@ void Min3_Vfloat(float* A, float* R, unsigned short Length)
 	unsigned short i;
 	float tmp1, tmp2, min;
 
+	// pour éviter les bords ? on intialise les 4 premières et dernières valeurs à 0
 	for (i = 0; i < 4; i++)
 	{
 		R[i] = 0.0;
 		R[Length - 1 - i] = 0.0;
 	}
 
+	// on compare les 3 valeurs et on garde la plus petite
 	for (i = 4; i<(Length - 4); i++)
 	{
 		tmp1 = A[i - 1];
@@ -89,9 +160,44 @@ void Min3_Vfloat(float* A, float* R, unsigned short Length)
 	}
 }
 
+//void simd_Min3_Vfloat(float* A, float* R, unsigned short Length)
+//{
+//	__m128 min;
+//	__m128 tmp1, tmp2, tmp3;
+//	for (int i = 0; i < Length; i += 4) {
+//		tmp1 = _mm_load_ps(&A[i]);
+//		tmp2 = _mm_loadu_ps(&A[i + 1]);
+//		tmp3 = _mm_loadu_ps(&A[i + 2]);
+//		min = _mm_min_ps(tmp1, tmp2);
+//		min = _mm_min_ps(min, tmp3);
+//		_mm_store_ps(&R[i], min);
+//	}
+//}
+
+// autre version n'utilsant qu'un load par iteration et pas de unaligned load
 void simd_Min3_Vfloat(float* A, float* R, unsigned short Length)
 {
+	for (int i = 0; i < 4; i++)
+	{
+		R[i] = 0.0;
+		R[Length - 1 - i] = 0.0;
+	}
+
+	__m128 min;
+	__m128 Vphi, V1, V2= _mm_setzero_ps();
+	Vphi = _mm_load_ps(&A[0]);
+	V1 = _mm_load_ps(&A[4]);
+	for (int i = 8; i < Length; i += 4) {
+		V2 = _mm_load_ps(&A[i]);
+		min = _mm_min_ps(vec_left1_ps(Vphi, V1), V1);
+		min = _mm_min_ps(V1, vec_right1_ps(V1, V2));
+		_mm_store_ps(&R[i], min);
+		Vphi = V1;
+		V1 = V2;
+	}
 }
+
+
 
 void Max3_Vfloat(float* A, float* R, unsigned short Length)
 {
@@ -116,6 +222,21 @@ void Max3_Vfloat(float* A, float* R, unsigned short Length)
 
 void simd_Max3_Vfloat(float* A, float* R, unsigned short Length)
 {
+	for (int i = 0; i < 4; i++)
+	{
+		R[i] = 0.0;
+		R[Length - 1 - i] = 0.0;
+	}
+	__m128 max;
+	__m128 tmp1, tmp2, tmp3;
+	for (int i = 0; i < Length; i += 4) {
+		tmp1 = _mm_load_ps(&A[i]);
+		tmp2 = _mm_loadu_ps(&A[i + 1]);
+		tmp3 = _mm_loadu_ps(&A[i + 2]);
+		max = _mm_max_ps(tmp1, tmp2);
+		max = _mm_max_ps(max, tmp3);
+		_mm_store_ps(&R[i], max);
+	}
 }
 
 void Moy3_Vfloat(float* A, float* R, unsigned short Length)
@@ -134,11 +255,28 @@ void Moy3_Vfloat(float* A, float* R, unsigned short Length)
 
 void simd_Moy3_Vfloat(float* A, float* R, unsigned short Length)
 {
+	for (int i = 0; i < 4; i++)
+	{
+		R[i] = 0.0;
+		R[Length - 1 - i] = 0.0;
+	}
+
+	__m128 left, center, right, sum;
+	for (int i = 4; i < Length - 4; i += 4) {
+		left = _mm_loadu_ps(&A[i - 1]);
+		center = _mm_load_ps(&A[i]);
+		right = _mm_loadu_ps(&A[i + 1]);
+		sum = _mm_add_ps(_mm_add_ps(left, center), right);
+		sum = _mm_div_ps(sum, _mm_set1_ps(3.0f));
+		_mm_store_ps(&R[i], sum);
+	}
 }
 
 #define TRI(A,B)	tmp = (A > B) ? A : B;	\
 					A   = (A <= B) ? A : B;	\
 					B   = tmp
+
+
 void Median3_Vfloat(float* A, float* R, unsigned short Length)
 {
 	unsigned short i;
@@ -162,8 +300,28 @@ void Median3_Vfloat(float* A, float* R, unsigned short Length)
 	}
 }
 
+#define TRI2(vecA, vecB) tmp = _mm_max_ps(vecA, vecB); \
+						vecA =_mm_min_ps( vecA, vecB); \
+						vecB = tmp;
+
+
 void simd_Median3_Vfloat(float* A, float* R, unsigned short Length)
 {
+	__m128 V1, V2, V3;
+	__m128 a, b, c;
+	__m128 tmp;
+	V1 = _mm_load_ps(&A[0]);
+	V2 = _mm_load_ps(&A[4]);
+	for (int i = 8; i < Length; i += 4) {
+		V3 = _mm_load_ps(&A[i]);
+		a = vec_left1_ps(V1, V2);
+		b = V2;
+		c = vec_right1_ps(V2, V3);
+		TRI2(a,b);
+		TRI2(b,c);
+		TRI2(a,b);
+		_mm_store_ps(&R[i-4], b);
+	}
 }
 
 #ifdef WINDOWS_VERSION

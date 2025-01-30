@@ -7,7 +7,7 @@
 
 #define vec_border_ps(a,b) _mm_shuffle_ps(a,b,0x4e)
 #define vec_middle_ps(a,b) _mm_shuffle_ps(a,b,0x99)
-
+ 
 #define vec_left1_ps(v0, v1)  vec_middle_ps(vec_border_ps(v0, v1), v1)
 #define vec_right1_ps(v1, v2) vec_middle_ps(v1, vec_border_ps(v1, v2))
 
